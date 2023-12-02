@@ -81,6 +81,13 @@ namespace DogCrateBot.Services
 
         private bool IsTimeToSleep()
         {
+            var currentDayOfWeek = DateTime.Now.AddHours(2).DayOfWeek;
+
+            if (currentDayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday)
+            {
+                return false;
+            }
+
             int hour = DateTime.UtcNow.AddHours(2).Hour;
 
             return hour is >= 1 and <= 5;
