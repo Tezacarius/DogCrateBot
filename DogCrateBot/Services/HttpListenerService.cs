@@ -2,7 +2,7 @@
 {
     public class HttpListenerService : IHostedService
     {
-        private readonly HttpListener _listener = new HttpListener();
+        private readonly HttpListener _listener = new();
 
         public async Task StartAsync(CancellationToken cancellationToken)
         {
@@ -18,7 +18,7 @@
 
         public async Task ListenAsync()
         {
-            _listener.Prefixes.Add("http://+:7860/"); // Listen on
+            _listener.Prefixes.Add("http://+:7860/");
             _listener.Start();
             HttpListenerContext context = await _listener.GetContextAsync();
             context.Response.StatusCode = (int)HttpStatusCode.OK;

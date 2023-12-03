@@ -1,12 +1,11 @@
-﻿using Newtonsoft.Json.Linq;
-
-namespace DogCrateBot.Services
+﻿namespace DogCrateBot.Services
 {
     public class DogCrateService
     {
         private readonly DiscordSocketClient _client;
         private readonly ILogger _logger;
         private readonly IConfiguration _config;
+        private readonly List<UserPolicyConfig> _userPolicies;
 
         public DogCrateService(
             DiscordSocketClient client,
@@ -16,12 +15,13 @@ namespace DogCrateBot.Services
             _client = client;
             _logger = logger;
             _config = config;
+            _userPolicies = _config.GetSection("UsersPolicyConfig").Get<List<UserPolicyConfig>>()!;
 
             _client.UserVoiceStateUpdated += OnUserVoiceStateUpdated;
 
             var clt = new CancellationTokenSource();
             var token = clt.Token;
-            _ = Run(() => DisconnectUser(ulong.Parse(_config["TargetUserId"]!)), TimeSpan.FromSeconds(10), token);
+            _ = Run(DisconnectUser, TimeSpan.FromSeconds(10), token);
         }
 
         private Task OnUserVoiceStateUpdated(SocketUser user, SocketVoiceState state1, SocketVoiceState state2)
@@ -31,10 +31,10 @@ namespace DogCrateBot.Services
                 return Task.CompletedTask;
             }
 
-            if (user.Id == ulong.Parse(_config["TargetUserId"]!) &&
-                state1.VoiceChannel is null &&
+            if (state1.VoiceChannel is null &&
                 state2.VoiceChannel is not null &&
-                IsTimeToSleep())
+                IsTargetUser(user.Id) &&
+                IsTimeToSleep(user.Id))
             {
                 guildUser.ModifyAsync(x =>
                 {
@@ -45,22 +45,25 @@ namespace DogCrateBot.Services
             return Task.CompletedTask;
         }
 
-        private void DisconnectUser(ulong id)
+        private void DisconnectUser()
         {
-            if (!IsTimeToSleep())
-            {
-                return;
-            }
-
             var guild = _client.GetGuild(ulong.Parse(_config["TargetGuildId"]!));
 
-            foreach (var channel in guild.VoiceChannels)
+            foreach (var userPolicy in _userPolicies)
             {
-                foreach (var user in channel.Users)
+                if (!IsTimeToSleep(userPolicy.Id))
                 {
-                    if (user.Id == id)
+                    return;
+                }
+
+                foreach (var channel in guild.VoiceChannels)
+                {
+                    foreach (var user in channel.Users)
                     {
-                        user.ModifyAsync(x => x.Channel = null);
+                        if (user.Id == userPolicy.Id)
+                        {
+                            user.ModifyAsync(x => x.Channel = null);
+                        }
                     }
                 }
             }
@@ -79,18 +82,34 @@ namespace DogCrateBot.Services
             }
         }
 
-        private bool IsTimeToSleep()
+        private bool IsTimeToSleep(ulong id)
         {
-            var currentDayOfWeek = DateTime.Now.AddHours(2).DayOfWeek;
+            var timeZome = int.Parse(_config["TimeZone"]!);
+            var userPolicy = _userPolicies.Find(u => u.Id == id)!;
+            var currentDayOfWeek = DateTime.Now.AddHours(timeZome).DayOfWeek;
+            var currentHour = DateTime.UtcNow.AddHours(timeZome).Hour;
 
-            if (currentDayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday)
+            var ignoredDays = userPolicy.IgnoredDaysOfWeek.Contains(currentDayOfWeek);
+
+            if (userPolicy.IgnoredDaysOfWeek.Contains(currentDayOfWeek))
             {
                 return false;
             }
 
-            int hour = DateTime.UtcNow.AddHours(2).Hour;
+            return currentHour >= userPolicy.FromHour && currentHour < userPolicy.ToHour;
+        }
 
-            return hour is >= 1 and <= 5;
+        private bool IsTargetUser(ulong id)
+        {
+            foreach (var userPolicy in _userPolicies)
+            {
+                if (userPolicy.Id == id)
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
     }
 }
